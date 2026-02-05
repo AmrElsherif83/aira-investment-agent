@@ -5,6 +5,7 @@
 
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/)
 [![Tests](https://img.shields.io/badge/tests-45%2F45%20passing-brightgreen)](tests/Aira.Tests)
+[![CI](https://github.com/AmrElsherif83/aira-investment-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/AmrElsherif83/aira-investment-agent/actions/workflows/ci.yml)
 
 ---
 
@@ -452,6 +453,212 @@ services.AddRateLimiter(options =>
 
 ---
 
+## 🎯 Design Rationale - Why This Architecture?
+
+### **Multi-Step Agent (Not Single LLM Call)**
+
+**Decision**: Implement explicit steps (Planning, Gathering, Scoring, Reflection) instead of single prompt.
+
+**Rationale**:
+- **Observability**: Each step produces artifacts that can be inspected independently
+- **Debuggability**: Failures isolated to specific steps (e.g., data fetching vs. scoring)
+- **Testability**: Each step logic can be unit tested without mocking the entire workflow
+- **Flexibility**: Steps can be reordered or replaced without affecting others
+
+**Evidence**: `AnalysisAgent.cs` with 4 explicit methods, `GET /analysis/{jobId}/steps` endpoint
+
+---
+
+### **Asynchronous Processing (Not Synchronous)**
+
+**Decision**: Background worker with queue instead of synchronous HTTP request/response.
+
+**Rationale**:
+- **Scalability**: API can accept requests faster than analysis can run
+- **User Experience**: Immediate 202 Accepted response, client polls for results
+- **Resilience**: Worker crashes don't affect API availability
+- **Resource Management**: Control concurrency with bounded queue
+
+**Evidence**: `AnalysisWorker.cs` BackgroundService, `ChannelBackgroundTaskQueue.cs`
+
+---
+
+### **In-Memory Storage (Not Database)**
+
+**Decision**: `ConcurrentDictionary` for job storage.
+
+**Rationale**:
+- **Scope**: Assignment is single-instance demo, no persistence requirement
+- **Simplicity**: No database setup, migrations, or connection strings
+- **Performance**: Zero I/O latency for job lookup
+- **Swappable**: `IJobStore` interface allows easy replacement with Redis/PostgreSQL
+
+**Trade-off**: Jobs lost on restart (acceptable for demo, documented in README)
+
+**Evidence**: `InMemoryJobStore.cs`, `IJobStore.cs` interface
+
+---
+
+### **Mock Data Providers (Not Real APIs)**
+
+**Decision**: Deterministic mock providers instead of Alpha Vantage, News API, etc.
+
+**Rationale**:
+- **No Dependencies**: Reviewers can run without API keys or internet
+- **Deterministic**: Same ticker always returns same data (easier testing)
+- **Fast**: Zero network latency
+- **Cost**: No paid API usage during evaluation
+
+**Trade-off**: Only supports NVDA with fixed data (documented in README)
+
+**Evidence**: `MockFinancialDataProvider.cs`, `IFinancialDataProvider.cs` interface
+
+---
+
+### **Deterministic Scoring (Not ML Model)**
+
+**Decision**: Explicit formulas for financial/sentiment/risk scoring.
+
+**Rationale**:
+- **Explainability**: Every score component can be traced to input data
+- **No Training**: No ML model training or tuning required
+- **Reproducible**: Same inputs always produce same outputs
+- **Debuggable**: Easy to unit test scoring logic
+
+**Evidence**: `ScoreCalculator.cs` with explicit formulas, 45 passing unit tests
+
+---
+
+### **Clean Architecture (Not Monolith)**
+
+**Decision**: 3-layer separation (Api, Core, Infrastructure).
+
+**Rationale**:
+- **Testability**: Core logic has zero external dependencies
+- **Portability**: Core can run in CLI, Azure Function, or any host
+- **Maintainability**: Clear boundaries prevent accidental coupling
+- **Reviewability**: Evaluators can focus on Core without API noise
+
+**Evidence**: Project structure, dependency flow (Api → Core ← Infrastructure)
+
+---
+
+## ⚙️ Trade-offs & Productionization
+
+### **Current Limitations**
+
+| Limitation | Impact | Production Fix |
+|------------|--------|---------------|
+| **In-memory storage** | Jobs lost on restart | Replace with Redis (persistence, multi-instance) or PostgreSQL (audit trail) |
+| **No horizontal scaling** | Single instance only | Replace `Channel<T>` with RabbitMQ or Azure Service Bus |
+| **Mock data** | NVDA only, fixed responses | Integrate Alpha Vantage, News API, SEC EDGAR |
+| **No auth** | Open API | Add JWT Bearer authentication |
+| **No rate limiting** | Unbounded requests | Add ASP.NET Core rate limiting middleware |
+| **No caching** | Repeated API calls | Add IMemoryCache or Redis for financial/news data |
+| **No retry logic** | Transient failures → job failure | Add Polly retry policies with exponential backoff |
+| **No observability** | Limited production debugging | Add OpenTelemetry tracing, Application Insights |
+
+### **Production Roadmap**
+
+**Phase 1: Persistence & Scalability**
+- Implement `RedisJobStore` or `PostgresJobStore`
+- Replace `Channel<T>` with RabbitMQ for distributed queue
+- Add multiple worker instances with load balancing
+
+**Phase 2: Real Data Integration**
+- Integrate Alpha Vantage for financial statements
+- Integrate News API for sentiment analysis
+- Parse SEC EDGAR 10-K filings for risk factors
+- Add caching layer (5-minute TTL for financial data)
+
+**Phase 3: Resilience & Reliability**
+- Add Polly retry policies (3 retries, exponential backoff)
+- Add circuit breakers for external APIs
+- Add health checks for dependencies
+- Implement dead-letter queue for failed jobs
+
+**Phase 4: Security & Governance**
+- Add JWT authentication (OAuth2/OpenID Connect)
+- Add rate limiting (100 requests/minute per API key)
+- Add input validation and sanitization
+- Add API versioning (/v1/analysis)
+
+**Phase 5: Observability & Monitoring**
+- Add OpenTelemetry distributed tracing
+- Add Application Insights or Jaeger
+- Add structured logging (Serilog)
+- Add metrics (Prometheus)
+- Add alerting (failed jobs > threshold)
+
+---
+
+## 📘 How to Use Postman Collection
+
+### **Setup**
+
+1. **Import Collection**
+   - Open Postman
+   - Click "Import" → "Upload Files"
+   - Select `postman/AIRA.postman_collection.json`
+
+2. **Import Environment**
+   - Click "Environments" → "Import"
+   - Select `postman/AIRA.postman_environment.json`
+   - Set "A.I.R.A. Local" as active environment
+
+3. **Verify Configuration**
+   - Ensure `baseUrl` = `http://localhost:5000`
+   - Ensure `ticker` = `NVDA`
+
+### **Run Tests**
+
+1. **Start API**
+```bash
+dotnet run --project src/Aira.Api
+```
+
+2. **Execute Collection**
+   - Click "Collections" → "A.I.R.A. - Investment Analysis API"
+   - Click "Run" (Runner icon)
+   - Click "Run A.I.R.A."
+   - Observe test results
+
+3. **Expected Results**
+   - **Submit Analysis**: 202 Accepted, jobId extracted
+   - **Get Status**: 200 OK, status = Queued/Running/Succeeded
+   - **Get Steps**: 200 OK, steps array with 4 items
+   - **Get Result**: 409 Conflict (if running) or 200 OK (if complete)
+
+### **Manual Testing**
+
+1. **Submit Analysis**
+   - Send "1. Submit Analysis"
+   - Copy `jobId` from response
+
+2. **Poll Status** (repeat until Succeeded)
+   - Send "2. Get Job Status"
+   - Wait 2-3 seconds
+   - Repeat until `status` = "Succeeded"
+
+3. **View Steps**
+   - Send "3. Get Step-by-Step Execution"
+   - Inspect `steps` array (should have 4 items)
+
+4. **Get Result**
+   - Send "4. Get Final Result"
+   - Verify `result` contains `company`, `thesis`, `signal`, `insights`, `sources`
+
+### **Troubleshooting**
+
+| Issue | Solution |
+|-------|----------|
+| **404 Not Found** | Ensure API is running (`dotnet run --project src/Aira.Api`) |
+| **jobId not found** | Ensure "Submit Analysis" ran successfully and extracted `{{jobId}}` |
+| **409 Conflict on result** | Job still processing, wait a few seconds and retry |
+| **500 Internal Server Error** | Check API logs for exceptions |
+
+---
+
 ## 📚 Documentation
 
 - **[Architecture Deep Dive](docs/ARCHITECTURE.md)** - Detailed system design
@@ -478,3 +685,15 @@ February 2025
 ---
 
 **Built with:** .NET 10 | Minimal APIs | Clean Architecture | Channel-based queues
+
+---
+
+## ✅ Submission Ready
+
+- [x] Postman collection created (`postman/AIRA.postman_collection.json`)
+- [x] Postman environment created (`postman/AIRA.postman_environment.json`)
+- [x] Submission checklist added (`SUBMISSION_CHECKLIST.md`)
+- [x] Design rationale documented
+- [x] Trade-offs and production roadmap documented
+- [x] All 45 tests passing
+- [x] Build successful

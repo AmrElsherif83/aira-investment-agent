@@ -1,0 +1,269 @@
+{
+	"info": {
+		"_postman_id": "aira-investment-agent-collection",
+		"name": "A.I.R.A. - Investment Analysis API",
+		"description": "Automated tests for A.I.R.A. (Autonomous Investment Research Agent)\n\nThis collection validates:\n- Job submission and queue acceptance\n- Job status tracking\n- Step-by-step execution observability\n- Final result retrieval",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Submit Analysis",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Test: Response status is 202 Accepted",
+							"pm.test(\"Status code is 202 Accepted\", function () {",
+							"    pm.response.to.have.status(202);",
+							"});",
+							"",
+							"// Test: Response has required fields",
+							"pm.test(\"Response contains jobId\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('jobId');",
+							"    pm.expect(jsonData.jobId).to.be.a('string');",
+							"});",
+							"",
+							"// Extract jobId and store in environment",
+							"if (pm.response.code === 202) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"jobId\", jsonData.jobId);",
+							"    pm.environment.set(\"ticker\", jsonData.ticker);",
+							"    console.log(\"Stored jobId: \" + jsonData.jobId);",
+							"}",
+							"",
+							"// Test: Status is Queued",
+							"pm.test(\"Initial status is Queued\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.equal(\"Queued\");",
+							"});",
+							"",
+							"// Test: URLs are provided",
+							"pm.test(\"Response includes navigation URLs\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('statusUrl');",
+							"    pm.expect(jsonData).to.have.property('stepsUrl');",
+							"    pm.expect(jsonData).to.have.property('resultUrl');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"ticker\": \"{{ticker}}\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/analysis",
+					"host": ["{{baseUrl}}"],
+					"path": ["analysis"]
+				},
+				"description": "Submit a new investment analysis request.\n\nExpected:\n- 202 Accepted with jobId\n- Job status = Queued\n- Navigation URLs provided"
+			},
+			"response": []
+		},
+		{
+			"name": "2. Get Job Status",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Test: Response status is 200 OK",
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"// Test: Status is valid",
+							"pm.test(\"Status is one of: Queued, Running, Succeeded, Failed\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('status');",
+							"    var validStatuses = [\"Queued\", \"Running\", \"Succeeded\", \"Failed\"];",
+							"    pm.expect(validStatuses).to.include(jsonData.status);",
+							"    console.log(\"Current status: \" + jsonData.status);",
+							"});",
+							"",
+							"// Test: Response structure",
+							"pm.test(\"Response has required fields\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('jobId');",
+							"    pm.expect(jsonData).to.have.property('ticker');",
+							"    pm.expect(jsonData).to.have.property('createdAt');",
+							"    pm.expect(jsonData).to.have.property('stepCount');",
+							"    pm.expect(jsonData).to.have.property('hasResult');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/analysis/{{jobId}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["analysis", "{{jobId}}"]
+				},
+				"description": "Get job status and metadata.\n\nExpected:\n- 200 OK\n- Status in [Queued, Running, Succeeded, Failed]\n- Metadata includes step count and result availability"
+			},
+			"response": []
+		},
+		{
+			"name": "3. Get Step-by-Step Execution",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Test: Response status is 200 OK",
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"// Test: Steps array exists",
+							"pm.test(\"Response contains steps array\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('steps');",
+							"    pm.expect(jsonData.steps).to.be.an('array');",
+							"    console.log(\"Step count: \" + jsonData.steps.length);",
+							"});",
+							"",
+							"// Test: Each step has required fields",
+							"pm.test(\"Each step has stepName, status, startedAt\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    if (jsonData.steps && jsonData.steps.length > 0) {",
+							"        jsonData.steps.forEach(function(step, index) {",
+							"            pm.expect(step, 'Step ' + index + ' missing stepName').to.have.property('stepName');",
+							"            pm.expect(step, 'Step ' + index + ' missing status').to.have.property('status');",
+							"            pm.expect(step, 'Step ' + index + ' missing startedAt').to.have.property('startedAt');",
+							"            pm.expect(step.stepName, 'Step ' + index + ' stepName should be a string').to.be.a('string');",
+							"            pm.expect(step.status, 'Step ' + index + ' status should be a string').to.be.a('string');",
+							"        });",
+							"    }",
+							"});",
+							"",
+							"// Test: Observable execution trace",
+							"pm.test(\"Steps provide execution trace\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    if (jsonData.steps && jsonData.steps.length > 0) {",
+							"        var firstStep = jsonData.steps[0];",
+							"        pm.expect(firstStep).to.have.property('summary');",
+							"        pm.expect(firstStep).to.have.property('artifacts');",
+							"        console.log(\"First step: \" + firstStep.stepName);",
+							"    }",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/analysis/{{jobId}}/steps",
+					"host": ["{{baseUrl}}"],
+					"path": ["analysis", "{{jobId}}", "steps"]
+				},
+				"description": "Get detailed step-by-step execution trace.\n\nExpected:\n- 200 OK\n- Array of steps with execution details\n- Each step includes: stepName, status, startedAt, summary, artifacts"
+			},
+			"response": []
+		},
+		{
+			"name": "4. Get Final Result",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Test: Response is either 200 OK or 409 Conflict",
+							"pm.test(\"Status code is 200 (Completed) or 409 (In Progress)\", function () {",
+							"    pm.expect([200, 409]).to.include(pm.response.code);",
+							"});",
+							"",
+							"// If 200 OK, validate result structure",
+							"if (pm.response.code === 200) {",
+							"    pm.test(\"Result contains required top-level keys\", function () {",
+							"        var jsonData = pm.response.json();",
+							"        pm.expect(jsonData).to.have.property('result');",
+							"        ",
+							"        var result = jsonData.result;",
+							"        pm.expect(result).to.have.property('company');",
+							"        pm.expect(result).to.have.property('thesis');",
+							"        pm.expect(result).to.have.property('signal');",
+							"        pm.expect(result).to.have.property('insights');",
+							"        pm.expect(result).to.have.property('sources');",
+							"        ",
+							"        console.log(\"Signal: \" + result.signal);",
+							"        console.log(\"Confidence: \" + result.confidence);",
+							"    });",
+							"    ",
+							"    pm.test(\"Signal is valid\", function () {",
+							"        var result = pm.response.json().result;",
+							"        var validSignals = [\"Bullish\", \"Neutral\", \"Bearish\"];",
+							"        pm.expect(validSignals).to.include(result.signal);",
+							"    });",
+							"    ",
+							"    pm.test(\"Insights array is not empty\", function () {",
+							"        var result = pm.response.json().result;",
+							"        pm.expect(result.insights).to.be.an('array');",
+							"        pm.expect(result.insights.length).to.be.above(0);",
+							"    });",
+							"    ",
+							"    pm.test(\"Sources array is not empty\", function () {",
+							"        var result = pm.response.json().result;",
+							"        pm.expect(result.sources).to.be.an('array');",
+							"        pm.expect(result.sources.length).to.be.above(0);",
+							"    });",
+							"}",
+							"",
+							"// If 409 Conflict, job is still processing",
+							"if (pm.response.code === 409) {",
+							"    pm.test(\"Job is still in progress\", function () {",
+							"        var jsonData = pm.response.json();",
+							"        pm.expect(jsonData).to.have.property('message');",
+							"        console.log(\"Job status: \" + jsonData.status);",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/analysis/{{jobId}}/result",
+					"host": ["{{baseUrl}}"],
+					"path": ["analysis", "{{jobId}}", "result"]
+				},
+				"description": "Get final investment report.\n\nExpected responses:\n- 409 Conflict if job is still Queued/Running\n- 200 OK if job Succeeded (with InvestmentReport)\n- 500 Internal Server Error if job Failed\n\nIf 200 OK, result must contain:\n- company, thesis, signal, insights, sources"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "ticker",
+			"value": "NVDA",
+			"type": "string"
+		}
+	]
+}
