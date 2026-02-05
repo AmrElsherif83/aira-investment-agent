@@ -9,7 +9,7 @@ using Aira.Infrastructure.Providers;
 using Aira.Infrastructure.Storage;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-
+using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // ===== Bind Configuration =====
@@ -86,7 +86,15 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi(); // OpenAPI spec at /openapi/v1.json
 }
+app.MapScalarApiReference(options =>
+{
+    options
+        .WithTitle("A.I.R.A. API")
+        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+});
 
+// Optional: redirect root -> scalar
+app.MapGet("/", () => Results.Redirect("/scalar"));
 app.UseHttpsRedirection();
 
 // ===== Map Endpoints =====
