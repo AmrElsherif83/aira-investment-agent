@@ -143,7 +143,7 @@ cd aira-investment-agent
 dotnet run --project src/Aira.Api
 
 # API available at: http://localhost:5000
-# Swagger UI: http://localhost:5000/swagger
+# Scalar UI: http://localhost:5000/
 ```
 
 ### Run Tests
