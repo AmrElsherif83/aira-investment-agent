@@ -1,3 +1,4 @@
+using Aira.Api.Configuration;
 using Aira.Api.Endpoints;
 using Aira.Api.Queue;
 using Aira.Api.Workers;
@@ -10,6 +11,30 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ===== Bind Configuration =====
+var airaOptions = builder.Configuration
+    .GetSection(AiraOptions.SectionName)
+    .Get<AiraOptions>() ?? new AiraOptions();
+
+// Validate configuration
+var (isValid, errorMessage) = airaOptions.Validate();
+if (!isValid)
+{
+    throw new InvalidOperationException($"Invalid configuration: {errorMessage}");
+}
+
+// Register options for dependency injection
+builder.Services.AddSingleton(airaOptions);
+
+// Log configuration on startup
+var logger = LoggerFactory.Create(config => config.AddConsole()).CreateLogger<Program>();
+logger.LogInformation("AIRA Configuration loaded:");
+logger.LogInformation("  DefaultTicker: {DefaultTicker}", airaOptions.DefaultTicker);
+logger.LogInformation("  EnableVerboseStepArtifacts: {EnableVerboseStepArtifacts}", airaOptions.EnableVerboseStepArtifacts);
+logger.LogInformation("  QueueCapacity: {QueueCapacity}", airaOptions.QueueCapacity);
+logger.LogInformation("  WorkerPollingIntervalSeconds: {WorkerPollingIntervalSeconds}", airaOptions.WorkerPollingIntervalSeconds);
+logger.LogInformation("  MaxConcurrentJobs: {MaxConcurrentJobs}", airaOptions.MaxConcurrentJobs);
 
 // ===== Configure JSON Serialization =====
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -27,7 +52,9 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddSingleton<IJobStore, InMemoryJobStore>();
 
 // Background Task Queue - Singleton (shared producer/consumer queue)
-builder.Services.AddSingleton<IBackgroundTaskQueue, ChannelBackgroundTaskQueue>();
+// Use configured capacity
+builder.Services.AddSingleton<IBackgroundTaskQueue>(sp => 
+    new ChannelBackgroundTaskQueue(airaOptions.QueueCapacity));
 
 // Data Providers - Singleton (stateless deterministic mock providers)
 builder.Services.AddSingleton<IFinancialDataProvider, MockFinancialDataProvider>();
